@@ -5,13 +5,15 @@ using Unity.Networking.Transport;
 using NetworkMessages;
 using System;
 using System.Text;
+using System.Collections;
+using System.Collections.Generic;
 
 public class NetworkServer : MonoBehaviour
 {
     public NetworkDriver m_Driver;
     public ushort serverPort;
     private NativeList<NetworkConnection> m_Connections;
-
+    public List<NetworkObjects.NetworkPlayer> playerList;
     void Start ()
     {
         m_Driver = NetworkDriver.Create();
@@ -23,6 +25,35 @@ public class NetworkServer : MonoBehaviour
             m_Driver.Listen();
 
         m_Connections = new NativeList<NetworkConnection>(16, Allocator.Persistent);
+
+        playerList = new List<NetworkObjects.NetworkPlayer>();
+
+        StartCoroutine(SendPlayerUpdateToAllClients());
+    }
+
+    IEnumerator SendPlayerUpdateToAllClients()
+    {
+        while (true)
+        {
+            //Debug.Log("starting message!!!");
+            ServerUpdateMsg m = new ServerUpdateMsg();
+            foreach(NetworkObjects.NetworkPlayer players in playerList)
+            {
+                //players.id = m_Connections[i].InternalId.ToString();
+                m.players.Add(players);
+                Debug.Log("Player ADDED!!!");
+            }
+            for (int i = 0; i <m_Connections.Length; i++)
+            {
+                if (!m_Connections[i].IsCreated)
+                    continue;
+
+                //PlayerUpdateMsg m = new PlayerUpdateMsg();
+                //m.player.id = m_Connections[i].InternalId.ToString();
+                SendToClient(JsonUtility.ToJson(m), m_Connections[i]);
+            }
+            yield return new WaitForSeconds(2);
+        }
     }
 
     void SendToClient(string message, NetworkConnection c){
@@ -41,10 +72,13 @@ public class NetworkServer : MonoBehaviour
         m_Connections.Add(c);
         Debug.Log("Accepted a connection");
 
+        NetworkObjects.NetworkPlayer temp = new NetworkObjects.NetworkPlayer();
         //// Example to send a handshake message:
-        // HandshakeMsg m = new HandshakeMsg();
-        // m.player.id = c.InternalId.ToString();
-        // SendToClient(JsonUtility.ToJson(m),c);        
+        HandshakeMsg m = new HandshakeMsg();
+        m.player.id = c.InternalId.ToString();
+        temp = m.player;
+        playerList.Add(temp);
+        SendToClient(JsonUtility.ToJson(m), c);
     }
 
     void OnData(DataStreamReader stream, int i){
@@ -60,6 +94,16 @@ public class NetworkServer : MonoBehaviour
             break;
             case Commands.PLAYER_UPDATE:
             PlayerUpdateMsg puMsg = JsonUtility.FromJson<PlayerUpdateMsg>(recMsg);
+                foreach(NetworkObjects.NetworkPlayer player in playerList)
+                {
+                    if(player.id == puMsg.player.id)
+                    {
+                        player.cubPos = puMsg.player.cubPos;
+                        player.cubeColor = puMsg.player.cubeColor;
+                        player.playerCube = puMsg.player.playerCube;
+                        return;
+                    }
+                }
             Debug.Log("Player update message received!");
             break;
             case Commands.SERVER_UPDATE:
